@@ -1,0 +1,91 @@
+diff -ruN -x .git old/src/core/nxlog.c new/src/core/nxlog.c
+--- old/src/core/nxlog.c	2025-03-28 08:33:29.178344600 +0300
++++ new/src/core/nxlog.c	2025-03-26 12:00:14.654055500 +0300
+@@ -58,7 +58,14 @@
+     nx_ctx_shutdown_modules(nxlog->ctx, NX_MODULE_TYPE_PROCESSOR);
+     nx_ctx_shutdown_modules(nxlog->ctx, NX_MODULE_TYPE_OUTPUT);
+     nx_ctx_shutdown_modules(nxlog->ctx, NX_MODULE_TYPE_EXTENSION);
+-    nx_config_cache_write();
++    if ( nxlog->verify_conf == FALSE )
++    {
++        nx_config_cache_write();
++    }
++    else
++    {
++        log_debug("nxlog_shutdown() skip config cache write on configuration verify");
++    }
+     nx_config_cache_free();
+     log_debug("nxlog_shutdown() leave");
+ }
+diff -ruN -x .git old/src/modules/extension/python/libnxpython.c new/src/modules/extension/python/libnxpython.c
+--- old/src/modules/extension/python/libnxpython.c	2025-03-28 08:33:29.197952000 +0300
++++ new/src/modules/extension/python/libnxpython.c	2025-03-26 11:48:07.664607500 +0300
+@@ -15,7 +15,6 @@
+ # undef uid_t
+ #endif
+ 
+-#include <frameobject.h>
+ #include <string.h>
+ #include <apr_env.h>
+ #include <libgen.h>
+@@ -141,15 +140,16 @@
+ {
+     ASSERT(frame != NULL);
+ 
+-    if (frame->f_code == NULL
+-            || frame->f_code->co_name == NULL
+-            || frame->f_code->co_filename == NULL)
++    PyCodeObject *f_code = PyFrame_GetCode(frame);
++    if (f_code == NULL
++            || f_code->co_name == NULL
++            || f_code->co_filename == NULL)
+     {
+         return NULL;
+     }
+ 
+-    PyObject *tmp1 = PyObject_Str(frame->f_code->co_name);
+-    PyObject *tmp2 = PyObject_Str(frame->f_code->co_filename);
++    PyObject *tmp1 = PyObject_Str(f_code->co_name);
++    PyObject *tmp2 = PyObject_Str(f_code->co_filename);
+     PyObject *tmp3 = PyUnicode_AsEncodedString(tmp1, "utf-8", "replace");
+     PyObject *tmp4 = PyUnicode_AsEncodedString(tmp2, "utf-8", "replace");
+     LOG_Py_DECREF(tmp1);
+@@ -158,7 +158,7 @@
+ 					 level,
+ 					 PyBytes_AsString(tmp3),
+ 					 PyBytes_AsString(tmp4),
+-					 PyCode_Addr2Line(frame->f_code, frame->f_lasti));
++					 PyCode_Addr2Line(f_code, PyFrame_GetLasti(frame)));
+     LOG_Py_DECREF(tmp3);
+     LOG_Py_DECREF(tmp4);
+     return ret;
+@@ -182,7 +182,7 @@
+ 
+     for (frame = tb->tb_frame;
+          frame != NULL;
+-         frame = frame->f_back, level ++)
++         frame = PyFrame_GetBack(frame), level ++)
+     {
+         str_frame = print_tb_frame(frame, level);
+         if (str_frame)
+diff -ruN -x .git old/src/modules/input/systemd/im_systemd.c new/src/modules/input/systemd/im_systemd.c
+--- old/src/modules/input/systemd/im_systemd.c	2025-03-28 08:33:29.198932200 +0300
++++ new/src/modules/input/systemd/im_systemd.c	2025-03-28 07:44:19.616415700 +0300
+@@ -169,6 +169,17 @@
+ 	CHECKERR_NEG_MSG(sd_journal_next(conf->journal),
+ 	                 "Skip last message");
+     }
++    else
++    {
++        log_warn("Couldn't get cursor from config cache. Read from end");
++        CHECKERR_NEG_MSG(sd_journal_seek_tail(conf->journal),
++            "Couldn't seek at tail record");
++        while ( sd_journal_next(conf->journal) > 0 );
++        {
++            log_debug("Last message skipped to seek at tail record");
++        }
++        im_systemd_cursor_save(module);
++    }
+ }
+ 
+ 

@@ -1,0 +1,40 @@
+diff -ruN -x .git old/src/core/nxlog.c new/src/core/nxlog.c
+--- old/src/core/nxlog.c	2025-03-27 14:26:56.604024800 +0300
++++ new/src/core/nxlog.c	2025-03-26 12:00:14.654055500 +0300
+@@ -58,7 +58,14 @@
+     nx_ctx_shutdown_modules(nxlog->ctx, NX_MODULE_TYPE_PROCESSOR);
+     nx_ctx_shutdown_modules(nxlog->ctx, NX_MODULE_TYPE_OUTPUT);
+     nx_ctx_shutdown_modules(nxlog->ctx, NX_MODULE_TYPE_EXTENSION);
+-    nx_config_cache_write();
++    if ( nxlog->verify_conf == FALSE )
++    {
++        nx_config_cache_write();
++    }
++    else
++    {
++        log_debug("nxlog_shutdown() skip config cache write on configuration verify");
++    }
+     nx_config_cache_free();
+     log_debug("nxlog_shutdown() leave");
+ }
+diff -ruN -x .git old/src/modules/input/systemd/im_systemd.c new/src/modules/input/systemd/im_systemd.c
+--- old/src/modules/input/systemd/im_systemd.c	2025-03-28 07:43:13.164192500 +0300
++++ new/src/modules/input/systemd/im_systemd.c	2025-03-28 07:44:19.616415700 +0300
+@@ -169,6 +169,17 @@
+ 	CHECKERR_NEG_MSG(sd_journal_next(conf->journal),
+ 	                 "Skip last message");
+     }
++    else
++    {
++        log_warn("Couldn't get cursor from config cache. Read from end");
++        CHECKERR_NEG_MSG(sd_journal_seek_tail(conf->journal),
++            "Couldn't seek at tail record");
++        while ( sd_journal_next(conf->journal) > 0 );
++        {
++            log_debug("Last message skipped to seek at tail record");
++        }
++        im_systemd_cursor_save(module);
++    }
+ }
+ 
+ 
