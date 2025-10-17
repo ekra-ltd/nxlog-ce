@@ -1,0 +1,149 @@
+diff -ruN -x .git old/packaging/redhat/make_rpm.sh new/packaging/redhat/make_rpm.sh
+--- old/packaging/redhat/make_rpm.sh	2023-11-17 09:05:23.000000000 +0000
++++ new/packaging/redhat/make_rpm.sh	2025-09-29 06:34:13.813429974 +0000
+@@ -37,7 +37,7 @@
+     mkdir -p $dirn
+ done
+ 
+-cat $NAME.spec.in | sed s/@VERSION@/$VERSION/ > $NAME.spec
++cat $NAME.spec.in | sed -e s/@VERSION@/$VERSION/ -e s/@DISTRO@/$DISTRO/ > $NAME.spec
+ 
+ if test x$SPEC_FILE = 'x'; then
+     SPEC_FILE="$NAME.spec"
+diff -ruN -x .git old/packaging/redhat/nxlog.spec.in new/packaging/redhat/nxlog.spec.in
+--- old/packaging/redhat/nxlog.spec.in	2023-11-17 09:05:23.000000000 +0000
++++ new/packaging/redhat/nxlog.spec.in	2025-09-29 06:34:13.813621577 +0000
+@@ -1,5 +1,6 @@
+ # install  redhat-rpm-config for debuginfo package 
+ %global debug_package %{nil}
++%global _rpmfilename %%{ARCH}/%%{NAME}-%%{VERSION}_@DISTRO@.%%{ARCH}.rpm
+ 
+ Summary:	nxlog is a modular, multi-threaded, high-performance log management solution
+ Name:		nxlog-ce
+@@ -13,10 +14,12 @@
+ #@rhel7@BuildRequires:	apr-devel pcre-devel openssl-devel libdbi-devel libcap-devel gcc libtool glibc-devel perl rpm-build tar make which
+ #@sles15|opensuse-leap15@BuildRequires: apr-devel pcre-devel libopenssl-devel libdbi-devel libcap-devel gcc libtool glibc-devel perl rpm-build tar make which
+ #@rhel8|rhel9@BuildRequires:	apr-devel pcre-devel openssl-devel libcap-devel expat-devel gcc libtool glibc-devel libgcc perl perl-ExtUtils-Embed rpm-build tar make which
++#@altlinux11@BuildRequires: libapr1-devel libssl-devel pcre-devel libcap-devel systemd-devel perl-devel python-devel python3-devel zlib-devel libexpat-devel bison flex byacc libtool gcc rpm-build tar make which
+ Prereq(post,preun):	/sbin/install-info
+ #@rhel7@Requires: shadow-utils, apr >= 1.2, libdbi >= 0.8.1, openssl, pcre, expat, zlib
+ #@rhel8|rhel9@Requires: shadow-utils, apr >= 1.2, openssl, pcre, expat, zlib
+ #@sles15|opensuse-leap15@Requires: shadow, libapr1 >= 1.2, pcre, libexpat1, zlib
++#@altlinux11@Requires: shadow-utils, libapr1 >= 1.2, pcre, openssl, libexpat, zlib
+ #BuildArchitectures:	x86_64
+ BuildRoot:	%{_tmppath}/%{name}-root
+ Conflicts:	nxlog-ce < %{version}
+@@ -73,6 +76,7 @@
+ /usr/share/nxlog-ce/*
+ #@rhel7|rhel8|rhel9@/usr/share/perl5/vendor_perl/Log/Nxlog.pm
+ #@sles15|opensuse-leap15@/usr/lib/perl5/vendor_perl/5.26.1/Log/Nxlog.pm
++#@altlinux11@/usr/share/perl5/Log/Nxlog.pm
+ %config /usr/lib/systemd/system/nxlog.service
+ %config /etc/nxlog/nxlog.conf
+ %dir /etc/nxlog/nxlog.d
+diff -ruN -x .git old/src/core/nxlog.c new/src/core/nxlog.c
+--- old/src/core/nxlog.c	2023-11-17 09:05:23.000000000 +0000
++++ new/src/core/nxlog.c	2025-09-29 06:34:13.813836107 +0000
+@@ -58,7 +58,14 @@
+     nx_ctx_shutdown_modules(nxlog->ctx, NX_MODULE_TYPE_PROCESSOR);
+     nx_ctx_shutdown_modules(nxlog->ctx, NX_MODULE_TYPE_OUTPUT);
+     nx_ctx_shutdown_modules(nxlog->ctx, NX_MODULE_TYPE_EXTENSION);
+-    nx_config_cache_write();
++    if ( nxlog->verify_conf == FALSE )
++    {
++        nx_config_cache_write();
++    }
++    else
++    {
++        log_debug("nxlog_shutdown() skip config cache write on configuration verify");
++    }
+     nx_config_cache_free();
+     log_debug("nxlog_shutdown() leave");
+ }
+diff -ruN -x .git old/src/modules/extension/python/libnxpython.c new/src/modules/extension/python/libnxpython.c
+--- old/src/modules/extension/python/libnxpython.c	2023-11-17 09:05:23.000000000 +0000
++++ new/src/modules/extension/python/libnxpython.c	2025-09-29 06:34:13.814032800 +0000
+@@ -15,7 +15,6 @@
+ # undef uid_t
+ #endif
+ 
+-#include <frameobject.h>
+ #include <string.h>
+ #include <apr_env.h>
+ #include <libgen.h>
+@@ -141,15 +140,16 @@
+ {
+     ASSERT(frame != NULL);
+ 
+-    if (frame->f_code == NULL
+-            || frame->f_code->co_name == NULL
+-            || frame->f_code->co_filename == NULL)
++    PyCodeObject *f_code = PyFrame_GetCode(frame);
++    if (f_code == NULL
++            || f_code->co_name == NULL
++            || f_code->co_filename == NULL)
+     {
+         return NULL;
+     }
+ 
+-    PyObject *tmp1 = PyObject_Str(frame->f_code->co_name);
+-    PyObject *tmp2 = PyObject_Str(frame->f_code->co_filename);
++    PyObject *tmp1 = PyObject_Str(f_code->co_name);
++    PyObject *tmp2 = PyObject_Str(f_code->co_filename);
+     PyObject *tmp3 = PyUnicode_AsEncodedString(tmp1, "utf-8", "replace");
+     PyObject *tmp4 = PyUnicode_AsEncodedString(tmp2, "utf-8", "replace");
+     LOG_Py_DECREF(tmp1);
+@@ -158,7 +158,7 @@
+ 					 level,
+ 					 PyBytes_AsString(tmp3),
+ 					 PyBytes_AsString(tmp4),
+-					 PyCode_Addr2Line(frame->f_code, frame->f_lasti));
++					 PyCode_Addr2Line(f_code, PyFrame_GetLasti(frame)));
+     LOG_Py_DECREF(tmp3);
+     LOG_Py_DECREF(tmp4);
+     return ret;
+@@ -182,7 +182,7 @@
+ 
+     for (frame = tb->tb_frame;
+          frame != NULL;
+-         frame = frame->f_back, level ++)
++         frame = PyFrame_GetBack(frame), level ++)
+     {
+         str_frame = print_tb_frame(frame, level);
+         if (str_frame)
+diff -ruN -x .git old/src/modules/input/systemd/im_systemd.c new/src/modules/input/systemd/im_systemd.c
+--- old/src/modules/input/systemd/im_systemd.c	2023-11-17 09:05:23.000000000 +0000
++++ new/src/modules/input/systemd/im_systemd.c	2025-09-29 06:34:13.814166140 +0000
+@@ -134,6 +134,7 @@
+     im_systemd_config_t *conf;
+     int err;
+     char *cur;
++    int skipped;
+ 
+     ASSERT(module != NULL);
+     ASSERT(module->config != NULL);
+@@ -169,6 +170,24 @@
+ 	CHECKERR_NEG_MSG(sd_journal_next(conf->journal),
+ 	                 "Skip last message");
+     }
++    else
++    {
++        log_warn("Couldn't get cursor from config cache. Read from end");
++        CHECKERR_NEG_MSG(sd_journal_seek_tail(conf->journal),
++            "Couldn't seek at tail record");
++
++        skipped = 0;
++        while ( sd_journal_next(conf->journal) > 0 )
++        {
++            skipped++;
++        }
++        if ( skipped != 0 ) {
++            log_debug("Last messages (%d) skipped to seek at tail record", skipped);
++        }
++
++        CHECKERR_NEG_MSG(sd_journal_previous(conf->journal),
++            "Couldn't seek at last record");
++    }
+ }
+ 
+ 

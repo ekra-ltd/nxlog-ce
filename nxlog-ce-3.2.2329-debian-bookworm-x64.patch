@@ -1,6 +1,6 @@
 diff -ruN -x .git old/src/core/nxlog.c new/src/core/nxlog.c
---- old/src/core/nxlog.c	2025-03-28 08:33:29.178344600 +0300
-+++ new/src/core/nxlog.c	2025-03-26 12:00:14.654055500 +0300
+--- old/src/core/nxlog.c	2023-11-17 09:05:23.000000000 +0000
++++ new/src/core/nxlog.c	2025-09-29 06:38:03.813540296 +0000
 @@ -58,7 +58,14 @@
      nx_ctx_shutdown_modules(nxlog->ctx, NX_MODULE_TYPE_PROCESSOR);
      nx_ctx_shutdown_modules(nxlog->ctx, NX_MODULE_TYPE_OUTPUT);
@@ -18,8 +18,8 @@ diff -ruN -x .git old/src/core/nxlog.c new/src/core/nxlog.c
      log_debug("nxlog_shutdown() leave");
  }
 diff -ruN -x .git old/src/modules/extension/python/libnxpython.c new/src/modules/extension/python/libnxpython.c
---- old/src/modules/extension/python/libnxpython.c	2025-03-28 08:33:29.197952000 +0300
-+++ new/src/modules/extension/python/libnxpython.c	2025-03-26 11:48:07.664607500 +0300
+--- old/src/modules/extension/python/libnxpython.c	2023-11-17 09:05:23.000000000 +0000
++++ new/src/modules/extension/python/libnxpython.c	2025-09-29 06:38:03.813743229 +0000
 @@ -15,7 +15,6 @@
  # undef uid_t
  #endif
@@ -69,9 +69,17 @@ diff -ruN -x .git old/src/modules/extension/python/libnxpython.c new/src/modules
          str_frame = print_tb_frame(frame, level);
          if (str_frame)
 diff -ruN -x .git old/src/modules/input/systemd/im_systemd.c new/src/modules/input/systemd/im_systemd.c
---- old/src/modules/input/systemd/im_systemd.c	2025-03-28 08:33:29.198932200 +0300
-+++ new/src/modules/input/systemd/im_systemd.c	2025-03-28 07:44:19.616415700 +0300
-@@ -169,6 +169,17 @@
+--- old/src/modules/input/systemd/im_systemd.c	2023-11-17 09:05:23.000000000 +0000
++++ new/src/modules/input/systemd/im_systemd.c	2025-09-29 06:38:03.813879164 +0000
+@@ -134,6 +134,7 @@
+     im_systemd_config_t *conf;
+     int err;
+     char *cur;
++    int skipped;
+ 
+     ASSERT(module != NULL);
+     ASSERT(module->config != NULL);
+@@ -169,6 +170,24 @@
  	CHECKERR_NEG_MSG(sd_journal_next(conf->journal),
  	                 "Skip last message");
      }
@@ -80,11 +88,18 @@ diff -ruN -x .git old/src/modules/input/systemd/im_systemd.c new/src/modules/inp
 +        log_warn("Couldn't get cursor from config cache. Read from end");
 +        CHECKERR_NEG_MSG(sd_journal_seek_tail(conf->journal),
 +            "Couldn't seek at tail record");
-+        while ( sd_journal_next(conf->journal) > 0 );
++
++        skipped = 0;
++        while ( sd_journal_next(conf->journal) > 0 )
 +        {
-+            log_debug("Last message skipped to seek at tail record");
++            skipped++;
 +        }
-+        im_systemd_cursor_save(module);
++        if ( skipped != 0 ) {
++            log_debug("Last messages (%d) skipped to seek at tail record", skipped);
++        }
++
++        CHECKERR_NEG_MSG(sd_journal_previous(conf->journal),
++            "Couldn't seek at last record");
 +    }
  }
  
